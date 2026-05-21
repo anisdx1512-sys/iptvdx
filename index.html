@@ -1448,12 +1448,14 @@ function loadProfile(i) {
   if (p.type === 'xtream') {
     startLoadingWithXtream(p);
   } else if (p.type === 'file') {
-    if (p.channels) {
-      state.channels = p.channels;
-      state.filteredChannels = p.channels;
-      const catSet = new Set();
-      p.channels.forEach(c => { if(c.group) catSet.add(c.group); });
-      state.categories = [...catSet].map((c,i) => ({ category_id: String(i+1), category_name: c }));
+    const allItems = p.allItems || p.channels;
+    if (allItems && allItems.length) {
+      const { channels, vodItems, seriesItems, categories } = distributeM3UItems(allItems);
+      state.channels = channels;
+      state.filteredChannels = channels;
+      state.vodItems = vodItems;
+      state.seriesItems = seriesItems;
+      state.categories = categories;
       document.getElementById('profile-name-badge').textContent = p.name;
       launchApp();
     } else {
@@ -1482,21 +1484,22 @@ function connectFile() {
     setProgress(60);
     document.getElementById('load-text').textContent = 'جاري تحليل القائمة...';
     const text = e.target.result;
-    const channels = parseM3U(text);
+    const allItems = parseM3U(text);
 
-    if (!channels.length) {
+    if (!allItems.length) {
       showToast('لم يتم العثور على قنوات في الملف', 'error');
       switchToSetup();
       return;
     }
 
-    const catSet = new Set();
-    channels.forEach(c => { if(c.group) catSet.add(c.group); });
-    state.categories = [...catSet].map((c,i) => ({ category_id: String(i+1), category_name: c }));
+    const { channels, vodItems, seriesItems, categories } = distributeM3UItems(allItems);
     state.channels = channels;
     state.filteredChannels = channels;
+    state.vodItems = vodItems;
+    state.seriesItems = seriesItems;
+    state.categories = categories;
 
-    const profile = { type:'file', name, channels };
+    const profile = { type:'file', name, allItems };
     const exists = state.profiles.findIndex(p => p.type==='file' && p.name===name);
     if (exists === -1) { state.profiles.unshift(profile); } else { state.profiles[exists] = profile; }
     saveProfiles();
@@ -1679,15 +1682,15 @@ async function startLoadingWithM3U(url, name) {
     setProgress(60);
     document.getElementById('load-text').textContent = 'جاري تحليل القائمة...';
 
-    const channels = parseM3U(text);
-    if (!channels.length) throw new Error('No channels found');
+    const allItems = parseM3U(text);
+    if (!allItems.length) throw new Error('No channels found');
 
+    const { channels, vodItems, seriesItems, categories } = distributeM3UItems(allItems);
     state.channels = channels;
     state.filteredChannels = channels;
-
-    const catSet = new Set();
-    channels.forEach(c => { if(c.group) catSet.add(c.group); });
-    state.categories = [...catSet].map((c,i) => ({ category_id: String(i+1), category_name: c }));
+    state.vodItems = vodItems;
+    state.seriesItems = seriesItems;
+    state.categories = categories;
 
     document.getElementById('profile-name-badge').textContent = name;
     setProgress(100);
@@ -1698,6 +1701,23 @@ async function startLoadingWithM3U(url, name) {
     showToast('فشل تحميل القائمة. جرب تفعيل Proxy أو استخدم ملف محلي.', 'error');
     switchToSetup();
   }
+}
+
+function detectItemType(url, name, group) {
+  const u = url.toLowerCase().split('?')[0];
+  const isVideoFile = u.endsWith('.mp4') || u.endsWith('.mkv') || u.endsWith('.avi') || u.endsWith('.mov') || u.endsWith('.wmv');
+  if (isVideoFile) {
+    const seriesPatterns = [/[Ss]\d{1,2}[Ee]\d{1,2}/, /\bseason\b/i, /\bالموسم\b/, /\bالحلقة\b/, /ep\.\s*\d+/i, /\bS\d{2}\b/];
+    const isSeriesByName = seriesPatterns.some(p => p.test(name));
+    const isSeriesByGroup = group && /series|مسلسل|مسلسلات|serial|episode/i.test(group);
+    if (isSeriesByName || isSeriesByGroup) return 'series';
+    const vodGroupPatterns = /movie|film|فيلم|أفلام|cinema|vod|4k|1080p|720p/i;
+    if (vodGroupPatterns.test(group || '')) return 'vod';
+    return 'vod';
+  }
+  const liveGroupPatterns = /live|بث|قناة|channel|sport|news|أخبار|رياضة|kids|أطفال|entertainment|ترفيه/i;
+  if (liveGroupPatterns.test(group || '') || u.endsWith('.m3u8') || u.endsWith('.ts')) return 'live';
+  return 'live';
 }
 
 function parseM3U(text) {
@@ -1718,11 +1738,24 @@ function parseM3U(text) {
       if (groupMatch) { current.group = groupMatch[1]; current.category_id = groupMatch[1]; }
     } else if (line && !line.startsWith('#') && current) {
       current.url = line;
+      current.type = detectItemType(line, current.name, current.group);
       channels.push(current);
       current = null;
     }
   }
   return channels;
+}
+
+function distributeM3UItems(allItems) {
+  const channels  = allItems.filter(i => i.type === 'live');
+  const vodItems  = allItems.filter(i => i.type === 'vod');
+  const seriesItems = allItems.filter(i => i.type === 'series');
+
+  const liveCatSet = new Set();
+  channels.forEach(c => { if(c.group) liveCatSet.add(c.group); });
+  const categories = [...liveCatSet].map((c, idx) => ({ category_id: c, category_name: c }));
+
+  return { channels, vodItems, seriesItems, categories };
 }
 
 // ============================================================
@@ -1748,7 +1781,12 @@ function launchApp() {
     } catch(e) {}
   }
 
-  showToast(`تم تحميل ${state.channels.length} قناة`, 'success');
+  const total = state.channels.length + state.vodItems.length + state.seriesItems.length;
+  const parts = [];
+  if (state.channels.length) parts.push(`${state.channels.length} قناة`);
+  if (state.vodItems.length) parts.push(`${state.vodItems.length} فيلم`);
+  if (state.seriesItems.length) parts.push(`${state.seriesItems.length} مسلسل`);
+  showToast(`✅ تم تحميل: ${parts.join(' · ')}`, 'success');
 }
 
 // ============================================================

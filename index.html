@@ -1026,6 +1026,51 @@
     width: 100%;
     margin-top: 20px;
   }
+
+  /* AUTO-LOAD BANNER */
+  .autoload-banner {
+    display: none;
+    background: linear-gradient(135deg, rgba(123,47,255,0.15), rgba(0,212,255,0.1));
+    border: 1px solid var(--accent);
+    border-radius: 12px;
+    padding: 14px 18px;
+    margin-bottom: 16px;
+    align-items: center;
+    gap: 12px;
+  }
+  .autoload-banner.visible { display: flex; }
+  .autoload-icon { font-size: 24px; flex-shrink: 0; }
+  .autoload-info { flex: 1; }
+  .autoload-title { font-size: 13px; font-weight: 700; color: var(--text-primary); }
+  .autoload-sub { font-size: 11px; color: var(--text-secondary); margin-top: 2px; }
+  .autoload-countdown {
+    font-family: 'Rajdhani', sans-serif;
+    font-size: 26px;
+    font-weight: 700;
+    color: var(--accent);
+    min-width: 32px;
+    text-align: center;
+  }
+  .autoload-actions { display: flex; gap: 6px; }
+  .autoload-btn {
+    padding: 6px 12px;
+    border-radius: 7px;
+    font-family: 'Cairo', sans-serif;
+    font-size: 12px;
+    font-weight: 700;
+    cursor: pointer;
+    border: none;
+    transition: opacity 0.2s;
+  }
+  .autoload-btn:hover { opacity: 0.85; }
+  .autoload-btn.now { background: linear-gradient(135deg, var(--accent2), var(--accent)); color: #fff; }
+  .autoload-btn.cancel { background: var(--bg-secondary); color: var(--text-secondary); border: 1px solid var(--border); }
+
+  /* REFRESH PLAYLIST BUTTON */
+  #refresh-btn { display: none; }
+  #refresh-btn.visible { display: flex; }
+  .refresh-spin { animation: spin 1s linear infinite; display: inline-block; }
+  @keyframes spin { to { transform: rotate(360deg); } }
 </style>
 <script src="webOSTV.js"></script>
 <script src="webos-support.js"></script>
@@ -1046,6 +1091,20 @@
 <div id="setup-screen" class="screen">
   <div class="setup-logo">IPTV PLAYER</div>
   <div class="setup-tagline">مشغل بث متقدم</div>
+
+  <!-- AUTO-LOAD BANNER -->
+  <div class="autoload-banner" id="autoload-banner">
+    <div class="autoload-icon">📡</div>
+    <div class="autoload-info">
+      <div class="autoload-title" id="autoload-title">جاري التحميل التلقائي...</div>
+      <div class="autoload-sub" id="autoload-sub"></div>
+    </div>
+    <div class="autoload-countdown" id="autoload-countdown">5</div>
+    <div class="autoload-actions">
+      <button class="autoload-btn now" onclick="triggerAutoLoad()">▶ الآن</button>
+      <button class="autoload-btn cancel" onclick="cancelAutoLoad()">✕ إلغاء</button>
+    </div>
+  </div>
 
   <div class="setup-box">
     <div class="setup-tabs">
@@ -1136,8 +1195,9 @@
         <div class="connection-dot"></div>
         <span id="profile-name-badge">متصل</span>
       </div>
+      <button class="topbar-btn" id="refresh-btn" onclick="refreshPlaylist()" title="تحديث القائمة">🔄 تحديث</button>
       <button class="topbar-btn" onclick="openSettings()">⚙️ الإعدادات</button>
-      <button class="topbar-btn" onclick="switchToSetup()">🔄 تغيير المصدر</button>
+      <button class="topbar-btn" onclick="switchToSetup()">↩ تغيير المصدر</button>
     </div>
   </div>
 
@@ -1457,6 +1517,7 @@ function deleteProfile(e, i) {
 function loadProfile(i) {
   const p = state.profiles[i];
   state.activeProfile = p;
+  localStorage.setItem('iptv_last_profile_index', String(i));
   if (p.type === 'xtream') {
     startLoadingWithXtream(p);
   } else if (p.type === 'file') {
@@ -1547,6 +1608,8 @@ function connectXtream() {
   const profile = { type:'xtream', name, url: url.replace(/\/+$/, ''), user, pass };
   const exists = state.profiles.findIndex(p => p.url===profile.url && p.user===profile.user);
   if (exists === -1) { state.profiles.unshift(profile); saveProfiles(); }
+  const idx = state.profiles.findIndex(p => p.url===profile.url && p.user===profile.user);
+  localStorage.setItem('iptv_last_profile_index', String(Math.max(0, idx)));
 
   state.activeProfile = profile;
   startLoadingWithXtream(profile);
@@ -1561,6 +1624,8 @@ function connectM3U() {
   const profile = { type:'m3u', name, m3uUrl: url };
   const exists = state.profiles.findIndex(p => p.m3uUrl===url);
   if (exists === -1) { state.profiles.unshift(profile); saveProfiles(); }
+  const idx = state.profiles.findIndex(p => p.m3uUrl===url);
+  localStorage.setItem('iptv_last_profile_index', String(Math.max(0, idx)));
 
   state.activeProfile = profile;
   startLoadingWithM3U(url, name);
@@ -1778,8 +1843,10 @@ function distributeM3UItems(allItems) {
 // LAUNCH APP
 // ============================================================
 function launchApp() {
+  cancelAutoLoad();
   document.getElementById('loading-screen').classList.remove('active');
   document.getElementById('app-screen').classList.add('active');
+  updateRefreshBtn();
 
   state.mode = 'live';
   state.currentCategory = 'all';
@@ -2400,7 +2467,97 @@ function toggleSetting(key) {
 function switchToSetup() {
   document.getElementById('app-screen').classList.remove('active');
   document.getElementById('setup-screen').classList.add('active');
+  cancelAutoLoad();
   renderProfiles();
+  startAutoLoad();
+}
+
+// ============================================================
+// AUTO-LOAD LAST PROFILE
+// ============================================================
+let autoLoadTimer = null;
+let autoLoadIndex = -1;
+let autoLoadSeconds = 5;
+
+function startAutoLoad() {
+  // Find last-used profile that supports auto-load (xtream or m3u URL)
+  const lastIdx = parseInt(localStorage.getItem('iptv_last_profile_index') || '-1');
+  if (lastIdx < 0 || lastIdx >= state.profiles.length) return;
+
+  const p = state.profiles[lastIdx];
+  if (!p || p.type === 'file') return;   // file profiles need manual re-upload
+
+  autoLoadIndex = lastIdx;
+  autoLoadSeconds = 5;
+
+  const banner = document.getElementById('autoload-banner');
+  const title  = document.getElementById('autoload-title');
+  const sub    = document.getElementById('autoload-sub');
+  const count  = document.getElementById('autoload-countdown');
+
+  const typeLabel = p.type === 'xtream' ? 'Xtream Codes' : 'M3U URL';
+  title.textContent = `تحميل تلقائي: ${p.name}`;
+  sub.textContent   = `${typeLabel} — سيبدأ خلال`;
+  count.textContent = autoLoadSeconds;
+  banner.classList.add('visible');
+
+  autoLoadTimer = setInterval(() => {
+    autoLoadSeconds--;
+    count.textContent = autoLoadSeconds;
+    if (autoLoadSeconds <= 0) {
+      triggerAutoLoad();
+    }
+  }, 1000);
+}
+
+function triggerAutoLoad() {
+  cancelAutoLoad();
+  if (autoLoadIndex >= 0 && autoLoadIndex < state.profiles.length) {
+    loadProfile(autoLoadIndex);
+  }
+}
+
+function cancelAutoLoad() {
+  if (autoLoadTimer) { clearInterval(autoLoadTimer); autoLoadTimer = null; }
+  autoLoadIndex = -1;
+  const banner = document.getElementById('autoload-banner');
+  if (banner) banner.classList.remove('visible');
+}
+
+// ============================================================
+// REFRESH PLAYLIST (M3U URL / Xtream)
+// ============================================================
+async function refreshPlaylist() {
+  const p = state.activeProfile;
+  if (!p) { showToast('لا يوجد مصدر نشط', 'warning'); return; }
+
+  const btn = document.getElementById('refresh-btn');
+  btn.innerHTML = '<span class="refresh-spin">🔄</span> جاري...';
+  btn.disabled = true;
+
+  try {
+    if (p.type === 'xtream') {
+      await startLoadingWithXtream(p);
+    } else if (p.type === 'm3u') {
+      await startLoadingWithM3U(p.m3uUrl, p.name);
+    } else {
+      showToast('قائمة الملف لا تدعم التحديث التلقائي', 'warning');
+    }
+  } finally {
+    btn.innerHTML = '🔄 تحديث';
+    btn.disabled = false;
+  }
+}
+
+function updateRefreshBtn() {
+  const p = state.activeProfile;
+  const btn = document.getElementById('refresh-btn');
+  if (!btn) return;
+  if (p && (p.type === 'xtream' || p.type === 'm3u')) {
+    btn.classList.add('visible');
+  } else {
+    btn.classList.remove('visible');
+  }
 }
 
 // ============================================================
@@ -2446,6 +2603,7 @@ const interval = setInterval(() => {
       document.getElementById('loading-screen').classList.remove('active');
       document.getElementById('setup-screen').classList.add('active');
       renderProfiles();
+      startAutoLoad();
     }, 400);
   }
 }, 200);

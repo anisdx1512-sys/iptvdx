@@ -2423,9 +2423,16 @@ document.addEventListener('keydown', (e) => {
 loadProfiles();
 loadSavedState();
 
-// Set proxy synchronously — built-in proxy runs on the same origin
-state.proxyUrl = window.location.origin;
-localStorage.setItem('iptv_proxy', state.proxyUrl);
+// Set proxy only when running from a real HTTP server (not file://)
+if (window.location.protocol !== 'file:') {
+  state.proxyUrl = window.location.origin;
+  localStorage.setItem('iptv_proxy', state.proxyUrl);
+} else {
+  // Running as local file (e.g. webOS simulator / TV) — no proxy needed,
+  // the native player handles HLS directly without CORS restrictions.
+  state.proxyUrl = '';
+  localStorage.removeItem('iptv_proxy');
+}
 
 let prog = 0;
 const interval = setInterval(() => {

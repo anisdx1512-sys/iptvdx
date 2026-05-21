@@ -2406,7 +2406,20 @@ document.addEventListener('keydown', (e) => {
 // ============================================================
 loadProfiles();
 loadSavedState();
-state.proxyUrl = localStorage.getItem('iptv_proxy') || '';
+
+// Auto-detect built-in proxy on same origin
+(async function initProxy() {
+  const saved = localStorage.getItem('iptv_proxy');
+  if (saved) { state.proxyUrl = saved; return; }
+  try {
+    const res = await fetch('/ping', { signal: AbortSignal.timeout(3000) });
+    const data = await res.json();
+    if (data.status === 'running') {
+      state.proxyUrl = window.location.origin;
+      localStorage.setItem('iptv_proxy', state.proxyUrl);
+    }
+  } catch(e) {}
+})();
 
 let prog = 0;
 const interval = setInterval(() => {

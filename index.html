@@ -1328,7 +1328,19 @@ function showToast(msg, type='info') {
 }
 
 function saveProfiles() {
-  localStorage.setItem('iptv_profiles', JSON.stringify(state.profiles));
+  try {
+    // Strip large allItems/channels data — file profiles need re-upload after refresh
+    const slim = state.profiles.map(p => {
+      if (p.type === 'file') {
+        const { allItems, channels, ...meta } = p;
+        return meta;
+      }
+      return p;
+    });
+    localStorage.setItem('iptv_profiles', JSON.stringify(slim));
+  } catch(e) {
+    console.warn('saveProfiles failed:', e);
+  }
 }
 
 function loadProfiles() {
@@ -1459,7 +1471,11 @@ function loadProfile(i) {
       document.getElementById('profile-name-badge').textContent = p.name;
       launchApp();
     } else {
-      showToast('الملف غير متاح. أعد تحميله من تبويب الملف.', 'error');
+      // File data is not in memory after page refresh — prompt re-upload
+      showToast('📁 أعد رفع الملف من تبويب "ملف" لاستعادة هذه القائمة', 'warning');
+      switchSetupTab('file');
+      const nameEl = document.getElementById('file-name');
+      if (nameEl) nameEl.value = p.name;
     }
   } else {
     startLoadingWithM3U(p.m3uUrl, p.name);
@@ -2407,19 +2423,9 @@ document.addEventListener('keydown', (e) => {
 loadProfiles();
 loadSavedState();
 
-// Auto-detect built-in proxy on same origin
-(async function initProxy() {
-  const saved = localStorage.getItem('iptv_proxy');
-  if (saved) { state.proxyUrl = saved; return; }
-  try {
-    const res = await fetch('/ping', { signal: AbortSignal.timeout(3000) });
-    const data = await res.json();
-    if (data.status === 'running') {
-      state.proxyUrl = window.location.origin;
-      localStorage.setItem('iptv_proxy', state.proxyUrl);
-    }
-  } catch(e) {}
-})();
+// Set proxy synchronously — built-in proxy runs on the same origin
+state.proxyUrl = window.location.origin;
+localStorage.setItem('iptv_proxy', state.proxyUrl);
 
 let prog = 0;
 const interval = setInterval(() => {

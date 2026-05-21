@@ -1,0 +1,15 @@
+{
+  "id": "com.iptvplayer.lite",
+  "version": "1.1.0",
+  "vendor": "Personal",
+  "type": "web",
+  "main": "index.html",
+  "title": "IPTV Player",
+  "icon": "icon.png",
+  "largeIcon": "largeIcon.png",
+  "bgColor": "#0a0e1a",
+  "iconColor": "#00d4ff",
+  "transparent": false,
+  "resizable": false,
+  "requiredPermissions": ["network.internet"]
+}

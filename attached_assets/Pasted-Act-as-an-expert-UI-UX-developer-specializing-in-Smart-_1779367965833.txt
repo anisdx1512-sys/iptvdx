@@ -1,0 +1,29 @@
+Act as an expert UI/UX developer specializing in Smart TV applications (webOS/Tizen). 
+I want to completely redesign the UI of my current IPTV player (index.html) to look highly modern, premium, and clean, heavily inspired by "IBO Player" and "Netflix".
+
+Here are the strict requirements for the redesign:
+
+1. Visual Theme & Colors:
+- Move away from the current neon/cyberpunk theme. Use a premium, cinematic dark theme (Deep blacks, dark elegant grays, and a sophisticated accent color like crisp White or subtle Gold/Blue).
+- Utilize "Glassmorphism" (backdrop-filter: blur) for the sidebar and overlay panels to give a modern, translucent feel over the background.
+
+2. Layout Structure:
+- Sidebar: Create a sleek, left-aligned sidebar for navigation (Live, VOD, Series, Favorites, Settings). It should show icons only by default, and expand to show text when focused/active.
+- Main Content Area: Spacious with generous padding. 
+- Background: Add a dynamic dark/blurred background element that can later be replaced by movie posters.
+
+3. TV-Optimized Focus States (CRUCIAL):
+- Since this is a TV app controlled by a standard D-pad remote, the `.focusable:focus` state must be extremely obvious. 
+- When an item is focused, apply a noticeable transform (e.g., `transform: scale(1.05)`), a thick bright border (e.g., 3px solid white), and a soft box-shadow glow. 
+- Ensure smooth CSS transitions (`transition: all 0.3s ease`) for all focus and hover states.
+
+4. Card Designs:
+- VOD/Series Cards: Should be vertical (2:3 aspect ratio) like movie posters, with the title subtly overlaid at the bottom with a gradient shadow for readability.
+- Live TV Cards: A clean, horizontal list layout or a sleek grid showing the channel logo prominently, the channel number, and name.
+
+5. Technical Constraints:
+- DO NOT change the existing JavaScript logic, function names, or state management.
+- Keep all existing HTML IDs (e.g., `channels-grid`, `category-list`, `video-player`, `setup-screen`) completely intact, as the JS relies on them.
+- Only modify the `<style>` section and the HTML structure/classes to achieve the new design. Update the JS `renderChannels`, `renderGridCard`, `renderListItem`, and `renderVodCard` template literals to output the new premium HTML structure.
+
+Please provide the updated index.html code implementing this premium UI.
